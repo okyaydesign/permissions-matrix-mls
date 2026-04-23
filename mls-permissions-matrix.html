@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>MLS Roles & Permissions Matrix</title>
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: #f5f5f3; color: #1a1a18; padding: 2rem; }
+h1 { font-size: 18px; font-weight: 500; margin-bottom: 4px; }
+.subtitle { font-size: 13px; color: #888780; margin-bottom: 1.5rem; }
+.toolbar { display: flex; align-items: center; gap: 10px; margin-bottom: 1.25rem; flex-wrap: wrap; }
+.toolbar input { font-size: 13px; padding: 6px 10px; border: 1px solid #d3d1c7; border-radius: 8px; background: #fff; color: #1a1a18; width: 200px; outline: none; }
+.toolbar input:focus { border-color: #1D9E75; }
+.toolbar button { font-size: 12px; padding: 6px 14px; border: 1px solid #d3d1c7; border-radius: 8px; background: #fff; color: #1a1a18; cursor: pointer; white-space: nowrap; }
+.toolbar button:hover { background: #f1efe8; }
+.toolbar button.export { border-color: #1D9E75; color: #0f6e56; }
+.toolbar button.export:hover { background: #e1f5ee; }
+.toolbar button.danger { color: #a32d2d; border-color: #f09595; }
+.toolbar button.danger:hover { background: #fcebeb; }
+.table-wrap { overflow-x: auto; border: 1px solid #d3d1c7; border-radius: 12px; background: #fff; }
+table { border-collapse: collapse; font-size: 12px; width: 100%; table-layout: fixed; }
+thead th { background: #f5f5f3; text-align: center; font-weight: 500; font-size: 11px; color: #5f5e5a; border-bottom: 1px solid #d3d1c7; position: sticky; top: 0; z-index: 2; }
+thead th.perm-col { text-align: left; padding: 12px 14px; width: 220px; font-size: 12px; color: #1a1a18; vertical-align: bottom; }
+thead th.role-col { width: auto; padding: 12px 4px 8px; vertical-align: bottom; }
+.role-header { display: flex; flex-direction: column; align-items: center; gap: 6px; }
+.role-name-wrap { writing-mode: vertical-rl; transform: rotate(180deg); font-size: 11px; font-weight: 500; color: #1a1a18; white-space: nowrap; line-height: 1; max-height: 120px; overflow: hidden; text-overflow: ellipsis; }
+.del-role { font-size: 10px; color: #a32d2d; cursor: pointer; border: none; background: none; padding: 0; writing-mode: horizontal-tb; transform: none; }
+.del-role:hover { text-decoration: underline; }
+tbody tr { border-bottom: 1px solid #f1efe8; }
+tbody tr:last-child { border-bottom: none; }
+tbody tr:hover td { background: #f9f9f7; }
+tbody td { padding: 8px; text-align: center; vertical-align: middle; }
+tbody td.perm-cell { text-align: left; padding-left: 14px; }
+.perm-name { font-size: 12px; font-weight: 500; color: #1a1a18; }
+.perm-desc { font-size: 11px; color: #888780; margin-top: 2px; }
+.cb-wrap { display: flex; align-items: center; justify-content: center; }
+input[type=checkbox] { width: 15px; height: 15px; cursor: pointer; accent-color: #1D9E75; }
+.note { font-size: 11px; color: #888780; margin-top: 10px; }
+</style>
+</head>
+<body>
+<h1>MLS — Roles &amp; Permissions Matrix</h1>
+<p class="subtitle">Assign permissions to roles. Add or remove roles as needed. Export to CSV to save.</p>
+
+<div class="toolbar">
+  <input id="new-role-input" type="text" placeholder="New role name…" maxlength="40" />
+  <button onclick="addRole()">+ Add role</button>
+  <button class="export" onclick="exportCSV()">Export CSV</button>
+  <button class="danger" onclick="resetDefaults()">Reset to defaults</button>
+</div>
+
+<div class="table-wrap">
+  <table id="matrix">
+    <thead id="thead-row"></thead>
+    <tbody id="tbody"></tbody>
+  </table>
+</div>
+<p class="note">Changes are session-only. Export CSV to save externally.</p>
+
+<script>
+const PERMISSIONS = [
+  { id: "reporting", name: "Reporting", desc: "Access to reporting features" },
+  { id: "reports_only", name: "Reports only", desc: "View-only access to reports" },
+  { id: "add_pharmacy", name: "Add pharmacy", desc: "Ability to add new pharmacies" },
+  { id: "add_user", name: "Add user", desc: "Ability to add new users" },
+  { id: "invoices", name: "Invoices", desc: "Full access to invoices" },
+  { id: "invoices_only", name: "Invoices only", desc: "View-only access to invoices" },
+  { id: "process_pgds", name: "Process PGDs", desc: "Process Patient Group Directions" },
+  { id: "view_payouts", name: "View payouts", desc: "View payout information" },
+  { id: "can_reallocate", name: "Can reallocate", desc: "Reallocate resources" },
+  { id: "can_rearrange", name: "Can rearrange", desc: "Rearrange schedules" },
+  { id: "can_prompt", name: "Can prompt", desc: "Send prompts and notifications" },
+  { id: "mark_as_missed", name: "Mark as missed", desc: "Mark appointments as missed" },
+  { id: "can_cancel", name: "Can cancel", desc: "Cancel appointments" },
+  { id: "triage_only", name: "Triage only", desc: "Access to triage features only" },
+  { id: "triage_accounts_only", name: "Triage accounts only", desc: "View-only triage accounts" },
+  { id: "practice_only", name: "Practice only", desc: "Practice mode access only" },
+  { id: "api_user", name: "API user", desc: "API access for integrations" },
+];
+
+const DEFAULT_ROLES = [
+  { id: "super_admin", name: "Super admin" },
+  { id: "admin", name: "Admin" },
+  { id: "superintendent", name: "Superintendent pharmacist" },
+  { id: "pharmacist", name: "Pharmacist" },
+  { id: "dispenser", name: "Dispenser" },
+  { id: "cs_agent", name: "CS agent" },
+  { id: "read_only", name: "Read only" },
+];
+
+const DEFAULT_MATRIX = {
+  super_admin:    { reporting:1,reports_only:1,add_pharmacy:1,add_user:1,invoices:1,invoices_only:1,process_pgds:1,view_payouts:1,can_reallocate:1,can_rearrange:1,can_prompt:1,mark_as_missed:1,can_cancel:1,triage_only:1,triage_accounts_only:1,practice_only:1,api_user:1 },
+  admin:          { reporting:1,reports_only:1,add_pharmacy:0,add_user:1,invoices:1,invoices_only:1,process_pgds:0,view_payouts:1,can_reallocate:1,can_rearrange:1,can_prompt:1,mark_as_missed:1,can_cancel:1,triage_only:0,triage_accounts_only:1,practice_only:0,api_user:0 },
+  superintendent: { reporting:1,reports_only:1,add_pharmacy:0,add_user:0,invoices:1,invoices_only:1,process_pgds:1,view_payouts:1,can_reallocate:1,can_rearrange:1,can_prompt:1,mark_as_missed:1,can_cancel:1,triage_only:0,triage_accounts_only:1,practice_only:0,api_user:0 },
+  pharmacist:     { reporting:0,reports_only:1,add_pharmacy:0,add_user:0,invoices:0,invoices_only:0,process_pgds:1,view_payouts:0,can_reallocate:0,can_rearrange:1,can_prompt:1,mark_as_missed:1,can_cancel:1,triage_only:0,triage_accounts_only:0,practice_only:0,api_user:0 },
+  dispenser:      { reporting:0,reports_only:0,add_pharmacy:0,add_user:0,invoices:0,invoices_only:0,process_pgds:0,view_payouts:0,can_reallocate:0,can_rearrange:0,can_prompt:1,mark_as_missed:1,can_cancel:0,triage_only:1,triage_accounts_only:0,practice_only:1,api_user:0 },
+  cs_agent:       { reporting:0,reports_only:1,add_pharmacy:0,add_user:0,invoices:0,invoices_only:1,process_pgds:0,view_payouts:0,can_reallocate:1,can_rearrange:0,can_prompt:1,mark_as_missed:1,can_cancel:1,triage_only:1,triage_accounts_only:1,practice_only:0,api_user:0 },
+  read_only:      { reporting:0,reports_only:1,add_pharmacy:0,add_user:0,invoices:0,invoices_only:1,process_pgds:0,view_payouts:0,can_reallocate:0,can_rearrange:0,can_prompt:0,mark_as_missed:0,can_cancel:0,triage_only:0,triage_accounts_only:1,practice_only:0,api_user:0 },
+};
+
+let roles = JSON.parse(JSON.stringify(DEFAULT_ROLES));
+let matrix = JSON.parse(JSON.stringify(DEFAULT_MATRIX));
+
+function render() {
+  const thead = document.getElementById("thead-row");
+  const tbody = document.getElementById("tbody");
+
+  let th = '<tr><th class="perm-col">Permission</th>';
+  roles.forEach(r => {
+    th += `<th class="role-col"><div class="role-header"><span class="role-name-wrap">${escHtml(r.name)}</span><button class="del-role" onclick="deleteRole('${r.id}')">remove</button></div></th>`;
+  });
+  th += "</tr>";
+  thead.innerHTML = th;
+
+  let tb = "";
+  PERMISSIONS.forEach(p => {
+    tb += `<tr><td class="perm-cell"><div class="perm-name">${p.name}</div><div class="perm-desc">${p.desc}</div></td>`;
+    roles.forEach(r => {
+      const chk = (matrix[r.id] && matrix[r.id][p.id]) ? "checked" : "";
+      tb += `<td><div class="cb-wrap"><input type="checkbox" ${chk} onchange="toggle('${r.id}','${p.id}',this.checked)" /></div></td>`;
+    });
+    tb += "</tr>";
+  });
+  tbody.innerHTML = tb;
+}
+
+function toggle(roleId, permId, val) {
+  if (!matrix[roleId]) matrix[roleId] = {};
+  matrix[roleId][permId] = val ? 1 : 0;
+}
+
+function addRole() {
+  const input = document.getElementById("new-role-input");
+  const name = input.value.trim();
+  if (!name) return;
+  const id = "role_" + Date.now();
+  roles.push({ id, name });
+  matrix[id] = {};
+  PERMISSIONS.forEach(p => matrix[id][p.id] = 0);
+  input.value = "";
+  render();
+}
+
+function deleteRole(id) {
+  if (!confirm("Remove this role?")) return;
+  roles = roles.filter(r => r.id !== id);
+  delete matrix[id];
+  render();
+}
+
+function resetDefaults() {
+  if (!confirm("Reset all roles and permissions to defaults?")) return;
+  roles = JSON.parse(JSON.stringify(DEFAULT_ROLES));
+  matrix = JSON.parse(JSON.stringify(DEFAULT_MATRIX));
+  render();
+}
+
+function exportCSV() {
+  let csv = "Permission,Description," + roles.map(r => `"${r.name}"`).join(",") + "\n";
+  PERMISSIONS.forEach(p => {
+    csv += `"${p.name}","${p.desc}",` + roles.map(r => (matrix[r.id] && matrix[r.id][p.id]) ? "Y" : "N").join(",") + "\n";
+  });
+  const blob = new Blob([csv], { type: "text/csv" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = "mls-permissions-matrix.csv";
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+function escHtml(str) {
+  return str.replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+document.getElementById("new-role-input").addEventListener("keydown", e => { if (e.key === "Enter") addRole(); });
+render();
+</script>
+</body>
+</html>
